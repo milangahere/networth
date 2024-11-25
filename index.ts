@@ -103,7 +103,19 @@ type CommandLineArguments = {
   addresses: string[];
   balanceThreshold: number;
   dataFolderPath: string;
+  format: boolean;
+  only: string;
 };
+
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
+
+const decimalFormatter = new Intl.NumberFormat("en-US", {
+  style: "decimal",
+  maximumFractionDigits: 2,
+});
 
 // -----------------------------------------------------
 // Fetch
@@ -278,16 +290,36 @@ async function main() {
   const portfolio = await getPorfolio(args.addresses);
   const netWorth = getNetWorth(portfolio, args.balanceThreshold);
 
-  const prettyNetworth = JSON.stringify(netWorth, null, 2);
-  console.log(prettyNetworth);
+  let prettyNetworth = args.format ? formatObjectNumbers(netWorth) : netWorth;
+
+  if (args.only) {
+    prettyNetworth = prettyNetworth[args.only];
+  }
+
+  const prettyNetworthStr = JSON.stringify(prettyNetworth, null, 2);
 
   if (args.dataFolderPath) {
     await fs.writeFile(
       `${args.dataFolderPath}/${getFilename()}.json`,
-      prettyNetworth,
+      prettyNetworthStr,
       "utf8",
     );
+  } else {
+    console.log(prettyNetworthStr);
   }
+}
+
+function formatObjectNumbers(obj: any): Record<string, string> {
+  for (const key in obj) {
+    if (typeof obj[key] === "object") {
+      obj[key] = formatObjectNumbers(obj[key]);
+    } else if (typeof obj[key] === "number") {
+      const formatter = key === "value" ? usdFormatter : decimalFormatter;
+      obj[key] = formatter.format(obj[key]);
+    }
+  }
+
+  return obj;
 }
 
 function getFilename() {
@@ -300,6 +332,8 @@ function getCommandLineArgs(): CommandLineArguments {
   let addresses: string[] = [];
   let dataFolderPath: string = "";
   let balanceThreshold: number = 0;
+  let format: boolean = false;
+  let only: string = "";
 
   for (const arg of process.argv.slice(2)) {
     const [key, value] = arg.split("=");
@@ -314,6 +348,14 @@ function getCommandLineArgs(): CommandLineArguments {
     if (key === "--balanceThreshold") {
       balanceThreshold = Number(value);
     }
+
+    if (key === "--format") {
+      format = true;
+    }
+
+    if (key === "--only") {
+      only = value;
+    }
   }
 
   if (addresses.length === 0) {
@@ -324,7 +366,7 @@ Example:
     process.exit(1);
   }
 
-  return { addresses, dataFolderPath, balanceThreshold };
+  return { addresses, dataFolderPath, balanceThreshold, format, only };
 }
 
 main();

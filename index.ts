@@ -281,11 +281,17 @@ async function main() {
 
   if (args.dataFolderPath) {
     await fs.writeFile(
-      `${args.dataFolderPath}/${new Date().toISOString()}.json`,
+      `${args.dataFolderPath}/${getFilename()}.json`,
       prettyNetworth,
       "utf8",
     );
   }
+}
+
+function getFilename() {
+  const date = new Date();
+  const iso = date.toISOString().slice(0, 10);
+  return `${iso}T${date.getHours()}:${date.getMinutes()}`;
 }
 
 function getCommandLineArgs(): CommandLineArguments {
@@ -316,7 +322,7 @@ Example:
     process.exit(1);
   }
 
-  return { addresses, dataFolderPath };
+  return { addresses, dataFolderPath, balanceThreshold };
 }
 
 main();

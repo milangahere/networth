@@ -89,7 +89,7 @@ type PortfolioResponse = {
   };
 };
 
-type NetWorth = {
+type Networth = {
   value: number;
   networks: string[];
 
@@ -104,7 +104,7 @@ type CommandLineArguments = {
   balanceThreshold: number;
   dataFolderPath: string;
   format: boolean;
-  only: string;
+  only: string[];
 };
 
 const usdFormatter = new Intl.NumberFormat("en-US", {
@@ -186,8 +186,8 @@ async function getPorfolio(addresses: string[]): Promise<Portfolio> {
 // -----------------------------------------------------
 // Parse
 
-function getNetWorth(portfolio: Portfolio, balanceThreshold: number): NetWorth {
-  const netWorth: NetWorth = {
+function getNetworth(portfolio: Portfolio, balanceThreshold: number): Networth {
+  const networth: Networth = {
     networks: [],
     value: 0,
     prices: {},
@@ -204,14 +204,14 @@ function getNetWorth(portfolio: Portfolio, balanceThreshold: number): NetWorth {
       continue;
     }
 
-    updateNetworthNetworks(netWorth, tokenBalance.network);
+    updateNetworthNetworks(networth, tokenBalance.network);
     updateNetworthToken(
-      netWorth,
+      networth,
       baseToken.symbol,
       baseToken.price,
       token.balance,
     );
-    netWorth.value += token.balanceUSD;
+    networth.value += token.balanceUSD;
   }
 
   // App (product) balances
@@ -220,8 +220,8 @@ function getNetWorth(portfolio: Portfolio, balanceThreshold: number): NetWorth {
       continue;
     }
 
-    if (!netWorth.products[appBalance.appName]) {
-      netWorth.products[appBalance.appName] = { value: 0, tokens: {} };
+    if (!networth.products[appBalance.appName]) {
+      networth.products[appBalance.appName] = { value: 0, tokens: {} };
     }
 
     for (const product of appBalance.products) {
@@ -230,39 +230,39 @@ function getNetWorth(portfolio: Portfolio, balanceThreshold: number): NetWorth {
           token = token || assetToken;
 
           updateNetworthToken(
-            netWorth,
+            networth,
             token.symbol,
             token.price,
             Number(token.balance),
           );
 
-          if (!netWorth.products[appBalance.appName].tokens[token.symbol]) {
-            netWorth.products[appBalance.appName].tokens[token.symbol] = 0;
+          if (!networth.products[appBalance.appName].tokens[token.symbol]) {
+            networth.products[appBalance.appName].tokens[token.symbol] = 0;
           }
 
-          netWorth.products[appBalance.appName].tokens[token.symbol] += Number(
+          networth.products[appBalance.appName].tokens[token.symbol] += Number(
             token.balance,
           );
         }
       }
     }
 
-    updateNetworthNetworks(netWorth, appBalance.network);
-    netWorth.products[appBalance.appName].value += appBalance.balanceUSD;
-    netWorth.value += appBalance.balanceUSD;
+    updateNetworthNetworks(networth, appBalance.network);
+    networth.products[appBalance.appName].value += appBalance.balanceUSD;
+    networth.value += appBalance.balanceUSD;
   }
 
-  return netWorth;
+  return networth;
 }
 
-function updateNetworthNetworks(netWorth: NetWorth, network: string) {
-  if (!netWorth.networks.includes(network)) {
-    netWorth.networks.push(network);
+function updateNetworthNetworks(networth: Networth, network: string) {
+  if (!networth.networks.includes(network)) {
+    networth.networks.push(network);
   }
 }
 
 function updateNetworthToken(
-  netWorth: NetWorth,
+  networth: Networth,
   symbol: string,
   price: number,
   balance: number,
@@ -271,12 +271,12 @@ function updateNetworthToken(
     return;
   }
 
-  if (!netWorth.prices[symbol]) {
-    netWorth.prices[symbol] = price;
+  if (!networth.prices[symbol]) {
+    networth.prices[symbol] = price;
 
     if (balance) {
-      netWorth.balances[symbol] = 0;
-      netWorth.balances[symbol] += balance;
+      networth.balances[symbol] = 0;
+      networth.balances[symbol] += balance;
     }
   }
 }
@@ -288,24 +288,35 @@ async function main() {
   const args = getCommandLineArgs();
 
   const portfolio = await getPorfolio(args.addresses);
-  const netWorth = getNetWorth(portfolio, args.balanceThreshold);
+  const baseNetworth = getNetworth(portfolio, args.balanceThreshold);
 
-  let prettyNetworth = args.format ? formatObjectNumbers(netWorth) : netWorth;
+  let networth: string | number | Networth | Record<string, string> =
+    Object.assign({}, baseNetworth);
 
-  if (args.only) {
-    prettyNetworth = prettyNetworth[args.only];
+  if (args.format) {
+    networth = formatObjectNumbers(networth);
   }
 
-  const prettyNetworthStr = JSON.stringify(prettyNetworth, null, 2);
+  if (args.only.length > 1) {
+    networth = args.only.reduce((obj, key) => {
+      obj[key] = networth[key];
+      return obj;
+    }, {});
+  } else if (args.only.length == 1) {
+    networth = networth[args.only[0]];
+  } else {
+  }
+
+  const networthStr = JSON.stringify(networth, null, 2);
 
   if (args.dataFolderPath) {
     await fs.writeFile(
       `${args.dataFolderPath}/${getFilename()}.json`,
-      prettyNetworthStr,
+      networthStr,
       "utf8",
     );
   } else {
-    console.log(prettyNetworthStr);
+    console.log(networthStr);
   }
 }
 
@@ -333,7 +344,7 @@ function getCommandLineArgs(): CommandLineArguments {
   let dataFolderPath: string = "";
   let balanceThreshold: number = 0;
   let format: boolean = false;
-  let only: string = "";
+  let only: string[] = [];
 
   for (const arg of process.argv.slice(2)) {
     const [key, value] = arg.split("=");
@@ -354,7 +365,7 @@ function getCommandLineArgs(): CommandLineArguments {
     }
 
     if (key === "--only") {
-      only = value;
+      only = value.split(",");
     }
   }
 

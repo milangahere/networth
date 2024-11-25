@@ -1,0 +1,11 @@
+{
+  "name": "moon",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "author": "milanga",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^22.9.0"
+  }
+}

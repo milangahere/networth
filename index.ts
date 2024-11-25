@@ -1,3 +1,8 @@
+import fs from "fs/promises";
+
+// -----------------------------------------------------
+// Types
+
 type Network =
   | "ETHEREUM_MAINNET"
   | "POLYGON_MAINNET"
@@ -17,10 +22,20 @@ type BaseToken = {
   imgUrl: string;
 };
 
+type Token = {
+  metaType: string;
+  address: string;
+  network: string;
+  balance: string;
+  balanceUSD: number;
+  price: number;
+  symbol: string;
+};
+
 type TokenBalance = {
   key: string;
   address: string;
-  network: Network;
+  network: string;
   updatedAt: number;
   token: {
     balance: number;
@@ -34,7 +49,7 @@ type Asset = {
   __typename: string;
   key: null;
   address: string;
-  network: Network;
+  network: string;
   appId: string;
   groupId: string;
   groupLabel: string;
@@ -45,7 +60,7 @@ type Asset = {
   decimals: number;
   supply: number;
   pricePerShare: number[];
-  tokens: BaseToken[];
+  tokens: (Token & { token?: Token })[];
 };
 
 type Product = {
@@ -55,7 +70,7 @@ type Product = {
 type AppBalance = {
   key: string;
   address: string;
-  network: Network;
+  network: string;
   updatedAt: number;
   balanceUSD: number;
   appName: string;
@@ -76,12 +91,22 @@ type PortfolioResponse = {
 
 type NetWorth = {
   value: number;
-  tokens: BaseToken[];
-  byToken: {
-    value: number;
-    token: BaseToken;
-  };
+  networks: string[];
+
+  prices: Record<string, number>; // { SYMBOL: 9999 }
+  balances: Record<string, number>; // { SYMBOL: 9999 }
+
+  products: Record<string, { value: number; tokens: Record<string, number> }>;
 };
+
+type CommandLineArguments = {
+  addresses: string[];
+  balanceThreshold: number;
+  dataFolderPath: string;
+};
+
+// -----------------------------------------------------
+// Fetch
 
 function getQuery(addresses: string[]): string {
   const addressesStr = addresses.map((address) => `"${address}"`).join(",");
@@ -146,44 +171,140 @@ async function getPorfolio(addresses: string[]): Promise<Portfolio> {
   return json.data.portfolio;
 }
 
-function getNetWorth(portfolio: Portfolio): number {
-  let netWorth = 0;
+// -----------------------------------------------------
+// Parse
+
+function getNetWorth(portfolio: Portfolio, balanceThreshold: number): NetWorth {
+  const netWorth: NetWorth = {
+    networks: [],
+    value: 0,
+    prices: {},
+    balances: {},
+    products: {},
+  };
+
+  // Token balances
   for (const tokenBalance of portfolio.tokenBalances) {
     const { token } = tokenBalance;
-    if (token.balanceUSD > 20) {
-      netWorth += token.balanceUSD;
+    const { baseToken } = token;
+
+    if (token.balanceUSD <= balanceThreshold) {
+      continue;
     }
+
+    updateNetworthNetworks(netWorth, tokenBalance.network);
+    updateNetworthToken(
+      netWorth,
+      baseToken.symbol,
+      baseToken.price,
+      token.balance,
+    );
+    netWorth.value += token.balanceUSD;
   }
 
+  // App (product) balances
   for (const appBalance of portfolio.appBalances) {
-    if (appBalance.balanceUSD > 20) {
-      netWorth += appBalance.balanceUSD;
+    if (appBalance.balanceUSD <= balanceThreshold) {
+      continue;
     }
+
+    if (!netWorth.products[appBalance.appName]) {
+      netWorth.products[appBalance.appName] = { value: 0, tokens: {} };
+    }
+
+    for (const product of appBalance.products) {
+      for (const asset of product.assets) {
+        for (let { token, ...assetToken } of asset.tokens) {
+          token = token || assetToken;
+
+          updateNetworthToken(
+            netWorth,
+            token.symbol,
+            token.price,
+            Number(token.balance),
+          );
+
+          if (!netWorth.products[appBalance.appName].tokens[token.symbol]) {
+            netWorth.products[appBalance.appName].tokens[token.symbol] = 0;
+          }
+
+          netWorth.products[appBalance.appName].tokens[token.symbol] += Number(
+            token.balance,
+          );
+        }
+      }
+    }
+
+    updateNetworthNetworks(netWorth, appBalance.network);
+    netWorth.products[appBalance.appName].value += appBalance.balanceUSD;
+    netWorth.value += appBalance.balanceUSD;
   }
 
   return netWorth;
 }
 
+function updateNetworthNetworks(netWorth: NetWorth, network: string) {
+  if (!netWorth.networks.includes(network)) {
+    netWorth.networks.push(network);
+  }
+}
+
+function updateNetworthToken(
+  netWorth: NetWorth,
+  symbol: string,
+  price: number,
+  balance: number,
+) {
+  if (!symbol) {
+    return;
+  }
+
+  if (!netWorth.prices[symbol]) {
+    netWorth.prices[symbol] = price;
+    netWorth.balances[symbol] = 0;
+  }
+
+  netWorth.balances[symbol] += balance;
+}
+
+// -----------------------------------------------------
+// Main
+
 async function main() {
   const args = getCommandLineArgs();
 
   const portfolio = await getPorfolio(args.addresses);
-  const netWorth = getNetWorth(portfolio);
+  const netWorth = getNetWorth(portfolio, args.balanceThreshold);
 
-  console.log(netWorth);
+  const prettyNetworth = JSON.stringify(netWorth, null, 2);
+  console.log(prettyNetworth);
+
+  if (args.dataFolderPath) {
+    await fs.writeFile(
+      `${args.dataFolderPath}/${new Date().toISOString()}.json`,
+      prettyNetworth,
+      "utf8",
+    );
+  }
 }
-
-type CommandLineArguments = {
-  addresses: string[];
-};
 
 function getCommandLineArgs(): CommandLineArguments {
   let addresses: string[] = [];
+  let dataFolderPath: string = "";
+  let balanceThreshold: number = 0;
 
   for (const arg of process.argv.slice(2)) {
     const [key, value] = arg.split("=");
     if (key === "--addresses") {
       addresses = value.split(",");
+    }
+
+    if (key === "--dataFolder") {
+      dataFolderPath = value;
+    }
+
+    if (key === "--balanceThreshold") {
+      balanceThreshold = Number(value);
     }
   }
 
@@ -195,14 +316,7 @@ Example:
     process.exit(1);
   }
 
-  return {
-    addresses,
-  };
+  return { addresses, dataFolderPath };
 }
 
 main();
-
-/*
-  Add values via command-line or file
-  Addresses via command line
-*/

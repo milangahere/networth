@@ -261,10 +261,12 @@ function updateNetworthToken(
 
   if (!netWorth.prices[symbol]) {
     netWorth.prices[symbol] = price;
-    netWorth.balances[symbol] = 0;
-  }
 
-  netWorth.balances[symbol] += balance;
+    if (balance) {
+      netWorth.balances[symbol] = 0;
+      netWorth.balances[symbol] += balance;
+    }
+  }
 }
 
 // -----------------------------------------------------

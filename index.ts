@@ -100,6 +100,7 @@ type Networth = {
 };
 
 type CommandLineArguments = {
+  help: boolean;
   addresses: string[];
   balanceThreshold: number;
   dataFolderPath: string;
@@ -287,8 +288,25 @@ function updateNetworthToken(
 // -----------------------------------------------------
 // Main
 
+function printHelpText() {
+  console.log(`Usage: networth [...flags]
+
+Flags:
+\t--addresses                 Comma separated list of addresses (can be a single one).                         --addresses=0xdeadbeef,0xdadefeeb
+\t--balanceThreshold          A numeric value for the minimum balance in USD, less than that will be filtered. --balanceThreshold=200
+\t--dataFolderPath            Folder path where to store the result of the run, it'll save it with the date of today as filename
+\t--format                    Format the numbers in the result as your system base formatting. 10000 -> $10,000.00
+\t--only                      Comma separated list of 
+`);
+}
+
 async function main() {
   const args = getCommandLineArgs();
+
+  if (args.help) {
+    printHelpText();
+    return;
+  }
 
   const portfolio = await getPorfolio(args.addresses);
   const baseNetworth = getNetworth(portfolio, args.balanceThreshold);
@@ -343,6 +361,7 @@ function getFilename() {
 }
 
 function getCommandLineArgs(): CommandLineArguments {
+  let help: boolean = false;
   let addresses: string[] = [];
   let dataFolderPath: string = "";
   let balanceThreshold: number = 0;
@@ -351,6 +370,11 @@ function getCommandLineArgs(): CommandLineArguments {
 
   for (const arg of process.argv.slice(2)) {
     const [key, value] = arg.split("=");
+
+    if (key === "--help") {
+      help = true;
+    }
+
     if (key === "--addresses") {
       addresses = value.split(",");
     }
@@ -372,15 +396,14 @@ function getCommandLineArgs(): CommandLineArguments {
     }
   }
 
-  if (addresses.length === 0) {
-    console.error(`Missing command line argument --addreses
+  if (!help && addresses.length === 0) {
+    console.error(`Missing command line argument --addreses.
 
-Example:
-./networth --addresses=0xabcdea,0xdeadbeef`);
+Run ./networth --help for more info`);
     process.exit(1);
   }
 
-  return { addresses, dataFolderPath, balanceThreshold, format, only };
+  return { help, addresses, dataFolderPath, balanceThreshold, format, only };
 }
 
 main();
